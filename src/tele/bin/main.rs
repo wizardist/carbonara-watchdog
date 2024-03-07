@@ -1,69 +1,46 @@
 use carbonara_watchdog::carbo::*;
 use chrono::{TimeDelta, Timelike, Utc};
 use chrono_tz::Tz;
+use core::time;
 use std::collections::HashSet;
 use std::error::Error;
 use std::ops::Add;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Once};
 use teloxide::dptree::case;
 use teloxide::types::Recipient;
 use teloxide::{filter_command, prelude::*, utils::command::BotCommands};
 use tokio::sync::RwLock;
-use tokio::time::{interval_at, Instant};
+use tokio::time::{sleep, sleep_until, Instant};
 
 const TZ: &'static Tz = &Tz::Europe__Helsinki;
 const ANNOUNCEMENT_HOUR: u32 = 9;
-const ANNOUNCEMENT_RATE: u64 = 24 * 60 * 60;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let today = Utc::now().with_timezone(TZ).date_naive();
-    let v = get_next_carbonara_date(today).await;
-
-    let carbonara_date = v.unwrap().unwrap();
-
-    println!("{}", carbonara_date);
-
-    let subscribers: Arc<RwLock<HashSet<ChatId>>> = Arc::new(RwLock::new(HashSet::new()));
-
     let bot = Bot::from_env();
+    let subscribers: Arc<RwLock<HashSet<ChatId>>> = Arc::new(RwLock::new(HashSet::new()));
 
     tokio::spawn({
         let announce_bot = bot.clone();
         let announce_subscribers = subscribers.clone();
 
         async move {
-            let n = Utc::now().with_timezone(TZ);
-            let ps = n
-                .with_hour(ANNOUNCEMENT_HOUR)
-                .unwrap()
-                .with_minute(0)
-                .unwrap()
-                .with_second(0)
-                .unwrap();
-
-            let mut start = Instant::now();
-
-            let delta = ps.signed_duration_since(n);
-            if delta >= TimeDelta::zero() {
-                start = start.add(delta.to_std().unwrap());
-            } else {
-                let delta = delta.add(TimeDelta::days(1));
-                start = start.add(delta.to_std().unwrap());
-            }
-
-            let mut announcement_ticker = interval_at(start, Duration::new(ANNOUNCEMENT_RATE, 0));
-
             loop {
-                announcement_ticker.tick().await;
+                sleep(time::Duration::new(300, 0)).await;
+                sleep_until(get_next_announcement_instant()).await;
+
+                let today = Utc::now().with_timezone(TZ).date_naive();
+                let carbonara_date = get_next_carbonara_date(today).await.unwrap().unwrap();
+                if today != carbonara_date {
+                    continue;
+                }
 
                 let subs = announce_subscribers.read().await;
 
-                for x in subs.iter() {
+                for chat_id in subs.iter() {
                     announce_bot
                         .send_message(
-                            Recipient::Id(x.clone()),
+                            Recipient::Id(chat_id.clone()),
                             r#"
 🇮🇹🤌🍝 Today is the day! 🍝🤌🇮🇹
 
@@ -101,6 +78,26 @@ TORILLE! 🇫🇮
     .unwrap();
 
     Ok(())
+}
+
+fn get_next_announcement_instant() -> Instant {
+    let now = Utc::now().with_timezone(TZ);
+    let next = now
+        .with_hour(ANNOUNCEMENT_HOUR)
+        .unwrap()
+        .with_minute(0)
+        .unwrap()
+        .with_second(0)
+        .unwrap();
+
+    let start = Instant::now();
+
+    let delta = next.signed_duration_since(now);
+    if delta >= TimeDelta::zero() {
+        start.add(delta.to_std().unwrap())
+    } else {
+        start.add(delta.add(TimeDelta::days(1)).to_std().unwrap())
+    }
 }
 
 #[derive(BotCommands, Clone)]
