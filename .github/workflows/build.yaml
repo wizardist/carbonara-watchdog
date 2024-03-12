@@ -1,0 +1,22 @@
+name: Build image
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      - run: doctl registry login
+      - name: Build the Docker image and publish
+        run: |
+          docker build --tag carbonara-watchdog .
+          docker tag carbonara-watchdog ${{ secrets.REGISTRY_REPO_NAME }}/carbonara-watchdog
+          docker push ${{ secrets.REGISTRY_REPO_NAME }}/carbonara-watchdog
