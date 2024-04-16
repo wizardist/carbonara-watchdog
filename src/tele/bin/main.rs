@@ -1,3 +1,5 @@
+mod persist;
+
 use carbonara_watchdog::carbo::*;
 use chrono::{TimeDelta, Timelike, Utc};
 use chrono_tz::Tz;
