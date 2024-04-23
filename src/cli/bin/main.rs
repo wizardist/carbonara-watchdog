@@ -1,5 +1,3 @@
-mod persist;
-
 use carbonara_watchdog::carbo::*;
 use chrono::Utc;
 use chrono_tz::Tz;
@@ -14,6 +12,4 @@ async fn main() {
     let carbonara_date = v.unwrap().unwrap();
 
     println!("{}", carbonara_date);
-
-    persist::get_subscribers().await;
 }

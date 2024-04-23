@@ -1,18 +1,16 @@
-mod persist;
-
 use carbonara_watchdog::carbo::*;
 use chrono::{TimeDelta, Timelike, Utc};
 use chrono_tz::Tz;
 use core::time;
-use std::collections::HashSet;
 use std::error::Error;
 use std::ops::Add;
-use std::sync::{Arc, Once};
 use teloxide::dptree::case;
 use teloxide::types::Recipient;
 use teloxide::{filter_command, prelude::*, utils::command::BotCommands};
-use tokio::sync::RwLock;
 use tokio::time::{sleep, sleep_until, Instant};
+use crate::persist::{get_subscribers, store_subscriber};
+
+mod persist;
 
 const TZ: &'static Tz = &Tz::Europe__Helsinki;
 const ANNOUNCEMENT_HOUR: u32 = 9;
@@ -20,11 +18,9 @@ const ANNOUNCEMENT_HOUR: u32 = 9;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let bot = Bot::from_env();
-    let subscribers: Arc<RwLock<HashSet<ChatId>>> = Arc::new(RwLock::new(HashSet::new()));
 
     tokio::spawn({
         let announce_bot = bot.clone();
-        let announce_subscribers = subscribers.clone();
 
         async move {
             loop {
@@ -37,12 +33,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     continue;
                 }
 
-                let subs = announce_subscribers.read().await;
+                let subs = get_subscribers().await;
 
                 for chat_id in subs.iter() {
                     announce_bot
                         .send_message(
-                            Recipient::Id(chat_id.clone()),
+                            Recipient::Id(ChatId(chat_id.clone())),
                             r#"
 🇮🇹🤌🍝 Today is the day! 🍝🤌🇮🇹
 
@@ -60,7 +56,6 @@ TORILLE! 🇫🇮
 
     tokio::spawn({
         let command_bot = bot.clone();
-        let command_subscribers = subscribers.clone();
 
         async {
             let cmd_handler = filter_command::<Command, _>()
@@ -69,7 +64,6 @@ TORILLE! 🇫🇮
             let msg_handler = Update::filter_message().branch(cmd_handler);
 
             Dispatcher::builder(command_bot, msg_handler)
-                .dependencies(dptree::deps![command_subscribers])
                 .enable_ctrlc_handler()
                 .build()
                 .dispatch()
@@ -113,12 +107,8 @@ enum Command {
 }
 
 /// Handles Command::Subscribe.
-async fn subscribe(
-    bot: Bot,
-    subscribers: Arc<RwLock<HashSet<ChatId>>>,
-    msg: Message,
-) -> ResponseResult<()> {
-    subscribers.write().await.insert(msg.chat.id);
+async fn subscribe(bot: Bot, msg: Message) -> ResponseResult<()> {
+    store_subscriber(msg.chat.id.0).await;
     bot.send_message(
         msg.chat.id,
         "I will tell you about carbonara lunch in the morning.",
